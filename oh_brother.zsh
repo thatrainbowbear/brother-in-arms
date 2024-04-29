@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 version=0.1
 set -Eeuo pipefail  # exit on first error
-
+set -x
 #correctly set $0
 0="${${ZERO:-${0:#ZSH_ARGZERO}}:-${(%):-%N}}"
 
@@ -29,11 +29,11 @@ EOF
 }
 
 
-model=${1:-HL-4570CDW}
+model=${1:-HL-1110}
 model_clean=${${model/-/}:l}
+model_uppercase=${${model/-/}:u}
 
 model_info=$(curl -L http://www.brother.com/pub/bsc/linux/infs/${model_clean:u})
-
 PRN_CUP_DEB=$(echo $model_info | awk -F= '/PRN_CUP_DEB/ {print $2}')
 PRN_LPD_DEB=$(echo $model_info | awk -F= '/PRN_LPD_DEB/ {print $2}')
 version=${${PRN_CUP_DEB/*cdwcupswrapper-/}%.i386.deb}
@@ -47,6 +47,7 @@ cd $build_root
 dl_base="https://www.brother.com/pub/bsc/linux/dlf/"
 
 cups_src_tgz_url="${dl_base}/${model_clean}cupswrapper-src-${version}.tar.gz"
+cups_src_tgz_url="https://download.brother.com/welcome/dlf100422/hl1110cupswrapper-GPL_src-3.0.1-1.tar.gz"
 cups_src_tgz=${cups_src_tgz_url:t}
 cups_src=${cups_src_tgz%.tar.gz}
 [[ -e $cups_src_tgz ]] || curl -LO $cups_src_tgz_url
@@ -74,20 +75,20 @@ cupswraper_armf_extracted=${cupswraper_i386_deb%.i386.deb}.armf.extracted
 dpkg -x $lpr_i386_deb $lpr_armf_extracted
 dpkg-deb -e $lpr_i386_deb $lpr_armf_extracted/DEBIAN
 sed -i 's/Architecture: i386/Architecture: armhf/' $lpr_armf_extracted/DEBIAN/control
-echo true > $lpr_armf_extracted/usr/local/Brother/Printer/$model_clean/inf/braddprinter
+echo true > $lpr_armf_extracted/opt/brother/Printers/$model_uppercase/inf/braddprinter
 
 # Grab the Brother ARM drivers from a generic armhf archive they provide and copy the ARM code into the unpacked folders. Note that HL2270 does not use brprintconflsr3.
 generic_deb=brgenprintml2pdrv-4.0.0-1.armhf.deb
 [[ -e $generic_deb ]] || curl -LO http://download.brother.com/welcome/dlf103361/$generic_deb
 dpkg -x $generic_deb $generic_deb.extracted
-cp $generic_deb.extracted/opt/brother/Printers/BrGenPrintML2/lpd/armv7l/rawtobr3 $lpr_armf_extracted/usr/local/Brother/Printer/$model_clean/lpd
+cp $generic_deb.extracted/opt/brother/Printers/BrGenPrintML2/lpd/armv7l/rawtobr3 $lpr_armf_extracted/opt/brother/Printers/$model_uppercase/lpd
 
 # Now repackage it
 cd $lpr_armf_extracted
 find . -type f ! -regex '.*.hg.*' ! -regex '.*?debian-binary.*' ! -regex '.*?DEBIAN.*' -printf '%P ' | xargs md5sum > DEBIAN/md5sums
 cd $build_root
 
-chmod 755 $lpr_armf_extracted/DEBIAN/p* $lpr_armf_extracted/usr/local/Brother/Printer/$model_clean/inf/* $lpr_armf_extracted/usr/local/Brother/Printer/$model_clean/lpd/*
+chmod 755 $lpr_armf_extracted/DEBIAN/p* $lpr_armf_extracted/opt/brother/Printers/$model_uppercase/inf/* $lpr_armf_extracted/opt/brother/Printers/$model_uppercase/lpd/*
 dpkg-deb -b $lpr_armf_extracted $lpr_armf_deb
 
 
@@ -111,14 +112,14 @@ dpkg-deb -e $cupswraper_i386_deb $cupswraper_armf_extracted/DEBIAN
 sed -i 's/Architecture: i386/Architecture: armhf/' $cupswraper_armf_extracted/DEBIAN/control
 
 # Copy the compiled code into the unpacked folder
-cp $cups_src/brcupsconfig4 $cupswraper_armf_extracted/usr/local/Brother/Printer/$model_clean/cupswrapper
+cp $cups_src/brcupsconfig4 $cupswraper_armf_extracted/opt/brother/Printers/$model_uppercase/cupswrapper
 
 # Repack it
 cd $cupswraper_armf_extracted
 find . -type f ! -regex '.*.hg.*' ! -regex '.*?debian-binary.*' ! -regex '.*?DEBIAN.*' -printf '%P ' | xargs md5sum > DEBIAN/md5sums
 cd $build_root
 
-chmod 755 $cupswraper_armf_extracted/DEBIAN/p* $cupswraper_armf_extracted/usr/local/Brother/Printer/$model_clean/cupswrapper/*
+chmod 755 $cupswraper_armf_extracted/DEBIAN/p* $cupswraper_armf_extracted/opt/brother/Printers/$model_uppercase/cupswrapper/*
 dpkg-deb -b $cupswraper_armf_extracted $cupswraper_armf_deb
 
 
@@ -132,7 +133,14 @@ dpkg-deb -b $cupswraper_armf_extracted $cupswraper_armf_deb
 # sudo apt install libc6:armhf
 
 # Install prereqs and install the drivers
-cd $build_root
-sudo apt install --yes psutils cups ./$lpr_armf_deb ./$cupswraper_armf_deb
-sudo systemctl restart cups
+# cd $build_root
+# sudo apt install --yes psutils cups ./$lpr_armf_deb ./$cupswraper_armf_deb
+# sudo systemctl restart cups
 # You may need to install other runtime dependencies such as a2ps, glibc-32bit, ghostscript
+cd ..
+rm -rf out
+mkdir out
+mv $build_root/$lpr_armf_deb out/
+mv $build_root/$cupswraper_armf_deb out/
+cd out
+apt install ./*.deb
